@@ -27,6 +27,8 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"crypto/x509"
+	"log"
 	"os"
 	"regexp"
 	"runtime"
@@ -70,6 +72,9 @@ type WSTunnelClient struct {
 	exitChan       chan struct{}  // channel to tell the tunnel goroutines to end
 	conn           *WSConnection
 	//ws             *websocket.Conn // websocket connection
+	ClientCert string // The client SSL certificate
+	ClientKey  string // The client SSL key
+	CACert     string // The trusted CA certificate
 }
 
 // WSConnection represents a single websocket connection
@@ -103,6 +108,9 @@ func NewWSTunnelClient(args []string) *WSTunnelClient {
 	var statf *string = cliFlag.String("statusfile", "", "path for status file")
 	var proxy *string = cliFlag.String("proxy", "",
 		"use HTTPS proxy http://user:pass@hostname:port")
+	var clientCert *string = cliFlag.String("clientcert", "", "path to PEM encoded client certificate")
+	var clientKey *string = cliFlag.String("clientkey", "", "path to PEM encoded client key")
+	var caCert *string = cliFlag.String("cacert", "", "path to PEM encoded CA certificate")
 
 	cliFlag.Parse(args)
 
@@ -155,7 +163,46 @@ func NewWSTunnelClient(args []string) *WSTunnelClient {
 		wstunCli.Proxy = proxyURL
 	}
 
+	if (*clientCert != "" && *clientKey == "") || (*clientCert == "" && *clientKey != "") {
+		log15.Crit("Both clientCert and clientKey must be provided if using client authentication")
+	}
+	if *clientCert != "" {
+		wstunCli.ClientCert = *clientCert
+		wstunCli.ClientKey = *clientKey
+	}
+	if *caCert != "" {
+		wstunCli.CACert = *caCert
+	}
+
 	return &wstunCli
+}
+
+func buildTLSConfig(clientCert string, clientKey string, caCert string) *tls.Config {
+	tlsConfig := &tls.Config{}
+
+	if clientCert != "" && clientKey != "" {
+		cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	if caCert != "" {
+		// Load CA cert
+		caCert, err := ioutil.ReadFile(caCert)
+		if err != nil {
+			log.Fatal(err)
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		tlsConfig.RootCAs = caCertPool
+	}
+
+	tlsConfig.BuildNameToCertificate()
+
+	return tlsConfig
 }
 
 func (t *WSTunnelClient) Start() error {
@@ -219,11 +266,14 @@ func (t *WSTunnelClient) Start() error {
 
 	// Keep opening websocket connections to tunnel requests
 	go func() {
+		tlsConfig := buildTLSConfig(t.ClientCert, t.ClientKey, t.CACert)
+
 		for {
 			d := &websocket.Dialer{
 				NetDial:         t.wsProxyDialer,
 				ReadBufferSize:  100 * 1024,
 				WriteBufferSize: 100 * 1024,
+				TLSClientConfig: tlsConfig,
 			}
 			h := make(http.Header)
 			h.Add("Origin", t.Token)
