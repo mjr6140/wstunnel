@@ -164,7 +164,8 @@ func NewWSTunnelClient(args []string) *WSTunnelClient {
 	}
 
 	if (*clientCert != "" && *clientKey == "") || (*clientCert == "" && *clientKey != "") {
-		log15.Crit("Both clientCert and clientKey must be provided if using client authentication")
+		log15.Crit("Both clientcert and clientkey must be provided if using client authentication")
+		os.Exit(1)
 	}
 	if *clientCert != "" {
 		wstunCli.ClientCert = *clientCert
