@@ -234,10 +234,20 @@ func statsHandler(t *WSTunnelServer, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var fullTokenQueryParam = parseQueryParam(r, "fullToken")
+	fullToken := false
+	if fullTokenQueryParam == "true" {
+		fullToken = true
+	}
+
 	reqPending := 0
 	badTunnels := 0
 	for i, t := range rss {
-		fmt.Fprintf(w, "\ntunnel%02d_token=%s\n", i, cutToken(t.token))
+		token := string(t.token)
+		if !fullToken {
+			token = cutToken(t.token)
+		}
+		fmt.Fprintf(w, "\ntunnel%02d_token=%s\n", i, token)
 		fmt.Fprintf(w, "tunnel%02d_req_pending=%d\n", i, len(t.requestSet))
 		reqPending += len(t.requestSet)
 		fmt.Fprintf(w, "tunnel%02d_tun_addr=%s\n", i, t.remoteAddr)
@@ -268,6 +278,16 @@ func statsHandler(t *WSTunnelServer, w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintf(w, "req_pending=%d\n", reqPending)
 	fmt.Fprintf(w, "dead_tunnels=%d\n", badTunnels)
+}
+
+func parseQueryParam(r *http.Request, paramName string) string {
+	u, _ := url.Parse(r.URL.String())
+	queryParams, _ := url.ParseQuery(u.RawQuery)
+	var result string
+	if queryParams[paramName] != nil {
+		result = queryParams[paramName][0]
+	}
+	return result
 }
 
 // payloadHeaderHandler handles payload requests with the tunnel token in the Host header.
