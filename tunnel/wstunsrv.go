@@ -82,6 +82,7 @@ type WSTunnelServer struct {
 	exitChan            chan struct{}           // channel to tell the tunnel goroutines to end
 	serverRegistry      map[token]*remoteServer // active remote servers indexed by token
 	serverRegistryMutex sync.Mutex              // mutex to protect map
+	tokenPrefixHeader   string                  // enforce a token prefix based on given header value
 }
 
 // name Lookups
@@ -122,6 +123,7 @@ func NewWSTunnelServer(args []string) *WSTunnelServer {
 	var httpTout *int = srvFlag.Int("httptimeout", 20*60, "timeout for http requests in seconds")
 	var slog *string = srvFlag.String("syslog", "", "syslog facility to log to")
 	var whoTok *string = srvFlag.String("robowhois", "", "robowhois.com API token")
+	var tokenPrefixHeader *string = srvFlag.String("tokenprefixheader", "", "enforce a specific token prefix based on request header")
 
 	srvFlag.Parse(args)
 
@@ -134,6 +136,8 @@ func NewWSTunnelServer(args []string) *WSTunnelServer {
 	wstunSrv.Log.Info("Setting remote request timeout", "timeout", wstunSrv.HttpTimeout)
 
 	wstunSrv.exitChan = make(chan struct{}, 1)
+
+	wstunSrv.tokenPrefixHeader = *tokenPrefixHeader
 
 	return &wstunSrv
 }

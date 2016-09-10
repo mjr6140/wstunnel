@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -49,6 +50,22 @@ func wsHandler(t *WSTunnelServer, w http.ResponseWriter, r *http.Request) {
 				tok, MIN_TOKEN_LEN), 400)
 		return
 	}
+	if t.tokenPrefixHeader != "" {
+		tokenPrefixValue := r.Header.Get(t.tokenPrefixHeader)
+		if tokenPrefixValue == "" {
+			httpError(t.Log, w, addr,
+				fmt.Sprintf("Rendez-vous token (%s) prefix header (%s) missing",
+					tok, t.tokenPrefixHeader), 400)
+			return
+		}
+		if !strings.HasPrefix(tok, tokenPrefixValue) {
+			httpError(t.Log, w, addr,
+				fmt.Sprintf("Rendez-vous token (%s) does not start with required prefix (%s)",
+					tok, tokenPrefixValue), 400)
+			return
+		}
+	}
+
 	logTok := cutToken(token(tok))
 	// Upgrade to web sockets
 	ws, err := websocket.Upgrade(w, r, nil, 100*1024, 100*1024)
