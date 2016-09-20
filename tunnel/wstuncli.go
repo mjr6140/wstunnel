@@ -64,6 +64,7 @@ type WSTunnelClient struct {
 	InternalServer http.Handler   // internal Server to dispatch HTTP requests to
 	Regexp         *regexp.Regexp // regexp for allowed local HTTP(S) servers
 	Insecure       bool           // accept self-signed SSL certs from local HTTPS servers
+	InsecureServer bool           // accept self-signed SSL certs from websocket tunnel server
 	Timeout        time.Duration  // timeout on websocket
 	Proxy          *url.URL       // if non-nil, external proxy to use
 	Log            log15.Logger   // logger with "pkg=WStuncli"
@@ -100,6 +101,8 @@ func NewWSTunnelClient(args []string) *WSTunnelClient {
 		"http server http[s]://hostname:port to send received requests to")
 	cliFlag.BoolVar(&wstunCli.Insecure, "insecure", false,
 		"accept self-signed SSL certs from local HTTPS servers")
+	cliFlag.BoolVar(&wstunCli.InsecureServer, "insecureserver", false,
+		"accept self-signed SSL certs from remote websocket server")
 	var sre *string = cliFlag.String("regexp", "",
 		"regexp for local HTTP(S) server to allow sending received requests to")
 	var tout *int = cliFlag.Int("timeout", 30, "timeout on websocket in seconds")
@@ -178,8 +181,10 @@ func NewWSTunnelClient(args []string) *WSTunnelClient {
 	return &wstunCli
 }
 
-func buildTLSConfig(clientCert string, clientKey string, caCert string) *tls.Config {
+func buildTLSConfig(clientCert string, clientKey string, caCert string, insecure bool) *tls.Config {
 	tlsConfig := &tls.Config{}
+
+	tlsConfig.InsecureSkipVerify = insecure
 
 	if clientCert != "" && clientKey != "" {
 		cert, err := tls.LoadX509KeyPair(clientCert, clientKey)
@@ -243,6 +248,10 @@ func (t *WSTunnelClient) Start() error {
 		httpClient = http.Client{Transport: tr}
 	}
 
+	if t.InsecureServer {
+		t.Log.Info("Accepting unverified SSL certs from remote websocket server")
+	}
+
 	if t.InternalServer != nil {
 		t.Log.Info("Dispatching to internal server")
 	} else if t.Server != "" || t.Regexp != nil {
@@ -267,7 +276,7 @@ func (t *WSTunnelClient) Start() error {
 
 	// Keep opening websocket connections to tunnel requests
 	go func() {
-		tlsConfig := buildTLSConfig(t.ClientCert, t.ClientKey, t.CACert)
+		tlsConfig := buildTLSConfig(t.ClientCert, t.ClientKey, t.CACert, t.InsecureServer)
 
 		for {
 			d := &websocket.Dialer{
