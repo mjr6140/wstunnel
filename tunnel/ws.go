@@ -4,12 +4,14 @@ package tunnel
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"strings"
 	"time"
 
@@ -86,6 +88,10 @@ func wsHandler(t *WSTunnelServer, w http.ResponseWriter, r *http.Request) {
 	rs.lastActivity = time.Now()
 	t.Log.Info("WS new tunnel connection", "token", logTok, "addr", addr, "ws", wsp(ws),
 		"rs", rs)
+	// Publish notification of tunnel creation.
+	if t.httpPostStatusURI != "" {
+		go sendTunnelEvent(t.Log, t.httpPostStatusURI, created, time.Now(), tok, rs.remoteAddr)
+	}
 	// do reverse DNS lookup asynchronously
 	go func() {
 		rs.remoteName, rs.remoteWhois = ipAddrLookup(t.Log, rs.remoteAddr)
@@ -118,6 +124,10 @@ func wsSetPingHandler(t *WSTunnelServer, ws *websocket.Conn, rs *remoteServer) {
 		ws.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(t.WSTimeout/3))
 		// update lastActivity
 		rs.lastActivity = time.Now()
+		// Publish notification of successful ping-pong test
+		if t.httpPostStatusURI != "" {
+			go sendTunnelEvent(t.Log, t.httpPostStatusURI, ping, time.Now(), string(rs.token), rs.remoteAddr)
+		}
 		return nil
 	}
 	ws.SetPingHandler(ph)
@@ -242,4 +252,57 @@ func wsReader(rs *remoteServer, ws *websocket.Conn, wsTimeout time.Duration, ch 
 	ch <- 0 // notify sender
 	time.Sleep(2 * time.Second)
 	ws.Close()
+}
+
+type eventType string
+
+const (
+	created      eventType = "Created"
+	ping                   = "Ping"
+	disconnected           = "Disconnected"
+)
+
+type tunnelEvent struct {
+	Token                string `json:"token"`
+	TunnelEventType      string `json:"tunnelEventType"`
+	Timestamp            string `json:"timestamp"`
+	UnixTime             int64  `json:"unixTime"`
+	TunnelIPAddr         string `json:"tunnelIPAddr"`
+	TunnelServerHostname string `json:"tunnelServerHostname"`
+}
+
+func sendTunnelEvent(log log15.Logger, uri string, tunEventType eventType, eventTimestamp time.Time, tunnelToken string, tunnelIPAddr string) {
+
+	hostname, _ := os.Hostname()
+	tunEvt := &tunnelEvent{
+		Token:                tunnelToken,
+		TunnelEventType:      string(tunEventType),
+		Timestamp:            eventTimestamp.String(),
+		UnixTime:             eventTimestamp.Unix(),
+		TunnelIPAddr:         tunnelIPAddr,
+		TunnelServerHostname: hostname,
+	}
+
+	evtJSON, _ := json.Marshal(tunEvt)
+
+	// Example JSON:
+	// {
+	//     "token": "some_token_value",
+	//     "tunnelEventType": "Ping",
+	//     "timestamp": "2016-11-03 14:21:49.123982135 -0400 EDT",
+	//     "unixTime": 1478197309,
+	//     "tunnelIPAddr": "172.20.3.2:50718",
+	//     "tunnelServerHostname": "foo.bar.baz"
+	// }
+
+	// POST the request to the server.  On error or non-200 response log a warning.
+	var resp, err = http.Post(uri, "application/json", strings.NewReader(string(evtJSON)))
+	if err != nil {
+		var errMsg = fmt.Sprintf("ERR publish event failed: %s - %s", string(evtJSON), err)
+		log.Warn(errMsg)
+	} else if resp.StatusCode != 200 {
+		var errMsg = fmt.Sprintf("ERR received %d response on publish event", resp.StatusCode)
+		log.Warn(errMsg)
+	}
+
 }

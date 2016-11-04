@@ -83,6 +83,7 @@ type WSTunnelServer struct {
 	serverRegistry      map[token]*remoteServer // active remote servers indexed by token
 	serverRegistryMutex sync.Mutex              // mutex to protect map
 	tokenPrefixHeader   string                  // enforce a token prefix based on given header value
+	httpPostStatusURI   string                  // post status information on tunnels to a URI
 }
 
 // name Lookups
@@ -124,6 +125,7 @@ func NewWSTunnelServer(args []string) *WSTunnelServer {
 	var slog *string = srvFlag.String("syslog", "", "syslog facility to log to")
 	var whoTok *string = srvFlag.String("robowhois", "", "robowhois.com API token")
 	var tokenPrefixHeader *string = srvFlag.String("tokenprefixheader", "", "enforce a specific token prefix based on request header")
+	var httpPostStatusURI *string = srvFlag.String("httppoststatusuri", "", "HTTP POST status information to a given URI")
 
 	srvFlag.Parse(args)
 
@@ -138,6 +140,7 @@ func NewWSTunnelServer(args []string) *WSTunnelServer {
 	wstunSrv.exitChan = make(chan struct{}, 1)
 
 	wstunSrv.tokenPrefixHeader = *tokenPrefixHeader
+	wstunSrv.httpPostStatusURI = *httpPostStatusURI
 
 	return &wstunSrv
 }
