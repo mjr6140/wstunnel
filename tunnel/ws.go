@@ -284,7 +284,11 @@ func sendTunnelEvent(log log15.Logger, uri string, tunEventType eventType, event
 	if err != nil {
 		var errMsg = fmt.Sprintf("ERR publish event failed: %s - %s", string(evtJSON), err)
 		log.Warn(errMsg)
-	} else if resp.StatusCode != 200 {
+		return
+	}
+
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
 		var errMsg = fmt.Sprintf("ERR received %d response on publish event", resp.StatusCode)
 		log.Warn(errMsg)
 	}
